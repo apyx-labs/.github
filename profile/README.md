@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo.png" alt="Apyx" width="400" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.png" />
+    <img alt="Apyx" src="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.png" width="400" />
+  </picture>
 </p>
 
 <p align="center">
