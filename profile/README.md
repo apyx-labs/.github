@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.png" />
-    <img alt="Apyx" src="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.png" width="400" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.svg" />
+    <img alt="Apyx" src="https://raw.githubusercontent.com/apyx-labs/.github/main/assets/logo-light.svg" width="400" />
   </picture>
 </p>
 
