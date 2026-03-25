@@ -1,0 +1,107 @@
+name: Check Commit Emails
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-emails:
+    name: Verify Commit Emails
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for all branches
+
+      - name: Check commit email addresses
+        run: |
+          #!/bin/bash
+          set -e
+
+          echo "🔍 Checking commit email addresses..."
+          echo ""
+
+          # Get the base branch (target branch of the PR)
+          BASE_REF="${{ github.event.pull_request.base.sha }}"
+          HEAD_REF="${{ github.event.pull_request.head.sha }}"
+
+          echo "Base SHA: $BASE_REF"
+          echo "Head SHA: $HEAD_REF"
+          echo ""
+
+          # Get list of commits between base and head
+          COMMITS=$(git rev-list $BASE_REF..$HEAD_REF)
+
+          if [ -z "$COMMITS" ]; then
+            echo "✅ No commits to check"
+            exit 0
+          fi
+
+          VIOLATIONS_FOUND=false
+          VIOLATION_DETAILS=""
+
+          # Check each commit
+          for commit in $COMMITS; do
+            AUTHOR_EMAIL=$(git show -s --format='%ae' $commit)
+            COMMITTER_EMAIL=$(git show -s --format='%ce' $commit)
+            COMMIT_MSG=$(git show -s --format='%s' $commit)
+            SHORT_SHA=$(git show -s --format='%h' $commit)
+
+            # Check if emails end with @users.noreply.github.com, are noreply@github.com, or are cursoragent@cursor.com
+            if [[ ! "$AUTHOR_EMAIL" =~ @users\.noreply\.github\.com$ ]] && [[ "$AUTHOR_EMAIL" != "noreply@github.com" ]] && [[ "$AUTHOR_EMAIL" != "cursoragent@cursor.com" ]]; then
+              VIOLATIONS_FOUND=true
+              VIOLATION_DETAILS+="❌ Commit $SHORT_SHA: \"$COMMIT_MSG\"\n"
+              VIOLATION_DETAILS+="   Author email: $AUTHOR_EMAIL (does not end with @users.noreply.github.com)\n\n"
+            fi
+
+            if [[ ! "$COMMITTER_EMAIL" =~ @users\.noreply\.github\.com$ ]] && [[ "$COMMITTER_EMAIL" != "noreply@github.com" ]] && [[ "$COMMITTER_EMAIL" != "cursoragent@cursor.com" ]]; then
+              VIOLATIONS_FOUND=true
+              VIOLATION_DETAILS+="❌ Commit $SHORT_SHA: \"$COMMIT_MSG\"\n"
+              VIOLATION_DETAILS+="   Committer email: $COMMITTER_EMAIL (does not end with @users.noreply.github.com)\n\n"
+            fi
+          done
+
+          if [ "$VIOLATIONS_FOUND" = true ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ EMAIL VERIFICATION FAILED"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "The following commits have email addresses that do not end with @users.noreply.github.com:"
+            echo ""
+            echo -e "$VIOLATION_DETAILS"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "📚 How to fix this:"
+            echo ""
+            echo "1. Find your GitHub noreply email at:"
+            echo "   https://github.com/settings/emails"
+            echo "   (It will look like: 12345678+yourusername@users.noreply.github.com)"
+            echo ""
+            echo "2. Configure Git to use your GitHub noreply email:"
+            echo "   git config user.email \"12345678+yourusername@users.noreply.github.com\""
+            echo ""
+            echo "3. Fix the commits:"
+            echo "   (Make sure you completed Step 2 first - this sets the committer email automatically)"
+            echo ""
+            echo "   For a single commit (most recent):"
+            echo "   GIT_COMMITTER_EMAIL=\"12345678+yourusername@users.noreply.github.com\" git commit --amend --author=\"Your Name <12345678+yourusername@users.noreply.github.com>\" --no-edit"
+            echo "   git push --force-with-lease"
+            echo ""
+            echo "   For multiple commits, use interactive rebase:"
+            echo "   git rebase -i HEAD~N  # where N is the number of commits to fix"
+            echo "   # In the editor, change 'pick' to 'edit' for the commits you want to fix, then for each:"
+            echo "   GIT_COMMITTER_EMAIL=\"12345678+yourusername@users.noreply.github.com\" git commit --amend --author=\"Your Name <12345678+yourusername@users.noreply.github.com>\" --no-edit"
+            echo "   git rebase --continue"
+            echo "   git push --force-with-lease"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          else
+            echo "✅ All commit email addresses are valid!"
+            echo ""
+            echo "All commits use @users.noreply.github.com email addresses."
+          fi
