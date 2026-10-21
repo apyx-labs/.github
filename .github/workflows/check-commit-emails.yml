@@ -2,6 +2,15 @@ name: Check Commit Emails
 
 on:
   workflow_call:
+    inputs:
+      allowed_emails:
+        description: >-
+          Newline- or comma-separated emails accepted in addition to
+          @users.noreply.github.com. Matched exactly (case-insensitive); a
+          non-noreply match also requires GitHub to report the commit as verified.
+        type: string
+        required: false
+        default: noreply@anthropic.com
 
 permissions:
   contents: read
@@ -18,6 +27,9 @@ jobs:
           fetch-depth: 0 # Fetch all history for all branches
 
       - name: Check commit email addresses
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALLOWED_EMAILS: ${{ inputs.allowed_emails }}
         run: |
           #!/bin/bash
           set -e
@@ -44,6 +56,38 @@ jobs:
           VIOLATIONS_FOUND=false
           VIOLATION_DETAILS=""
 
+          # Extra emails (besides @users.noreply.github.com) accepted by exact,
+          # case-insensitive match. Newline- or comma-separated.
+          ALLOWED_LIST=$(echo "$ALLOWED_EMAILS" | tr ',' '\n' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed '/^$/d')
+
+          is_allowlisted() {
+            local email
+            email=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+            [ -n "$ALLOWED_LIST" ] && echo "$ALLOWED_LIST" | grep -qxF -- "$email"
+          }
+
+          # Returns "true" if GitHub reports the commit signature as verified
+          commit_verified() {
+            gh api "repos/${{ github.repository }}/commits/$1" --jq .commit.verification.verified 2>/dev/null || echo "error"
+          }
+
+          # Prints nothing if the email is acceptable, otherwise the reason.
+          # $1 = role (Author|Committer), $2 = email, $3 = full commit SHA
+          check_email() {
+            local role="$1" email="$2" sha="$3"
+            if [[ "$email" =~ @users\.noreply\.github\.com$ ]] || [[ "$email" == "noreply@github.com" ]] || [[ "$email" == "cursoragent@cursor.com" ]]; then
+              return 0
+            fi
+            if is_allowlisted "$email"; then
+              if [ "$(commit_verified "$sha")" = "true" ]; then
+                return 0
+              fi
+              echo "$role email $email is allowlisted but the commit is not verified"
+              return 0
+            fi
+            echo "$role email: $email (does not end with @users.noreply.github.com and is not in the allowed list)"
+          }
+
           # Check each commit
           for commit in $COMMITS; do
             AUTHOR_EMAIL=$(git show -s --format='%ae' $commit)
@@ -51,17 +95,22 @@ jobs:
             COMMIT_MSG=$(git show -s --format='%s' $commit)
             SHORT_SHA=$(git show -s --format='%h' $commit)
 
-            # Check if emails end with @users.noreply.github.com, are noreply@github.com, or are cursoragent@cursor.com
-            if [[ ! "$AUTHOR_EMAIL" =~ @users\.noreply\.github\.com$ ]] && [[ "$AUTHOR_EMAIL" != "noreply@github.com" ]] && [[ "$AUTHOR_EMAIL" != "cursoragent@cursor.com" ]]; then
-              VIOLATIONS_FOUND=true
-              VIOLATION_DETAILS+="❌ Commit $SHORT_SHA: \"$COMMIT_MSG\"\n"
-              VIOLATION_DETAILS+="   Author email: $AUTHOR_EMAIL (does not end with @users.noreply.github.com)\n\n"
-            fi
+            for role in Author Committer; do
+              if [ "$role" = "Author" ]; then EMAIL="$AUTHOR_EMAIL"; else EMAIL="$COMMITTER_EMAIL"; fi
+              REASON=$(check_email "$role" "$EMAIL" "$commit")
+              if [ -n "$REASON" ]; then
+                VIOLATIONS_FOUND=true
+                VIOLATION_DETAILS+="❌ Commit $SHORT_SHA: \"$COMMIT_MSG\"\n"
+                VIOLATION_DETAILS+="   $REASON\n\n"
+              fi
+            done
 
-            if [[ ! "$COMMITTER_EMAIL" =~ @users\.noreply\.github\.com$ ]] && [[ "$COMMITTER_EMAIL" != "noreply@github.com" ]] && [[ "$COMMITTER_EMAIL" != "cursoragent@cursor.com" ]]; then
+            # A verified signature vouches for the committer, so an allowlisted
+            # author email must come with the same committer email.
+            if is_allowlisted "$AUTHOR_EMAIL" && [[ ! "$AUTHOR_EMAIL" =~ @users\.noreply\.github\.com$ ]] && [ "${AUTHOR_EMAIL,,}" != "${COMMITTER_EMAIL,,}" ]; then
               VIOLATIONS_FOUND=true
               VIOLATION_DETAILS+="❌ Commit $SHORT_SHA: \"$COMMIT_MSG\"\n"
-              VIOLATION_DETAILS+="   Committer email: $COMMITTER_EMAIL (does not end with @users.noreply.github.com)\n\n"
+              VIOLATION_DETAILS+="   Author email $AUTHOR_EMAIL is allowlisted but the committer email ($COMMITTER_EMAIL) differs\n\n"
             fi
           done
 
@@ -70,12 +119,18 @@ jobs:
             echo "❌ EMAIL VERIFICATION FAILED"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
-            echo "The following commits have email addresses that do not end with @users.noreply.github.com:"
+            echo "The following commits have email addresses that do not end with @users.noreply.github.com,"
+            echo "are not in the allowed list ($(echo $ALLOWED_LIST | tr ' ' ',')), or are allowlisted but not verified:"
             echo ""
             echo -e "$VIOLATION_DETAILS"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
             echo "📚 How to fix this:"
+            echo ""
+            echo "Allowlisted emails (e.g. Claude Code's noreply@anthropic.com) are accepted as-is,"
+            echo "but only when GitHub shows the commit as Verified. Do not rewrite those commits;"
+            echo "if one is unverified, it was not signed by the registered key. Callers can extend"
+            echo "the list with the 'allowed_emails' input. For everything else:"
             echo ""
             echo "1. Find your GitHub noreply email at:"
             echo "   https://github.com/settings/emails"
@@ -103,5 +158,5 @@ jobs:
           else
             echo "✅ All commit email addresses are valid!"
             echo ""
-            echo "All commits use @users.noreply.github.com email addresses."
+            echo "All commits use @users.noreply.github.com or verified allowlisted email addresses."
           fi
